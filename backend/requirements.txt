@@ -1,0 +1,16 @@
+asgiref==3.12.1
+certifi==2026.10.19
+charset-normalizer==3.5.2
+Django==6.1.2
+django-cors-headers==4.9.0
+djangorestframework==3.18.3
+greenlet==3.3.2
+gunicorn==26.2.0
+idna==3.20
+playwright==1.58.0
+pyee==13.0.1
+requests==2.34.2
+sqlparse==0.6.0
+typing_extensions==4.15.0
+urllib3==2.8.0
+whitenoise==6.12.0

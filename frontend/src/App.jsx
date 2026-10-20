@@ -96,7 +96,7 @@ export default function App() {
     setResult(null);
     setPopupInfo(null);
     try {
-      const resp = await fetch('http://localhost:8000/api/routes/analyze/', {
+      const resp = await fetch('/api/routes/analyze/', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
