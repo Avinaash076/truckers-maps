@@ -1,6 +1,6 @@
 import math
 import requests
-import concurrent.futures
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
@@ -169,51 +169,6 @@ def interpolate_checkpoints(coords, interval_miles, departure_dt, duration_secon
 #  STEP 4 – WEATHER FETCH
 # ─────────────────────────────────────────────
 
-def _fetch_single_weather(cp):
-    try:
-        params = {
-            "latitude": cp["lat"],
-            "longitude": cp["lon"],
-            "hourly": "wind_speed_10m,rain,snowfall",
-            "wind_speed_unit": "mph",
-            "precipitation_unit": "inch",
-            "forecast_days": 3,
-            "timezone": "UTC",
-        }
-        resp = requests.get(OPEN_METEO_URL, params=params, timeout=10)
-        resp.raise_for_status()
-        data = resp.json()
-
-        hourly = data.get("hourly", {})
-        times = hourly.get("time", [])
-        winds = hourly.get("wind_speed_10m", [])
-        rains = hourly.get("rain", [])
-        snows = hourly.get("snowfall", [])
-
-        # Find closest hour
-        eta_dt = datetime.fromisoformat(cp["eta_iso"])
-        if eta_dt.tzinfo is None:
-            eta_dt = eta_dt.replace(tzinfo=timezone.utc)
-
-        best_idx = 0
-        best_diff = float("inf")
-        for idx, t_str in enumerate(times):
-            t = datetime.fromisoformat(t_str).replace(tzinfo=timezone.utc)
-            diff = abs((t - eta_dt).total_seconds())
-            if diff < best_diff:
-                best_diff = diff
-                best_idx = idx
-
-        cp["wind_mph"] = winds[best_idx] if best_idx < len(winds) else 0.0
-        cp["rain_in"] = rains[best_idx] if best_idx < len(rains) else 0.0
-        cp["snowfall_in"] = snows[best_idx] if best_idx < len(snows) else 0.0
-    except Exception:
-        cp["wind_mph"] = 0.0
-        cp["rain_in"] = 0.0
-        cp["snowfall_in"] = 0.0
-    return cp
-
-
 def fetch_weather_batch(checkpoints):
     """
     Fetch Open-Meteo hourly weather for each unique (lat, lon) checkpoint
@@ -223,50 +178,53 @@ def fetch_weather_batch(checkpoints):
     if not checkpoints:
         return checkpoints
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
-        enriched = list(executor.map(_fetch_single_weather, checkpoints))
+    enriched = []
+    for cp in checkpoints:
+        try:
+            params = {
+                "latitude": cp["lat"],
+                "longitude": cp["lon"],
+                "hourly": "wind_speed_10m,rain,snowfall",
+                "wind_speed_unit": "mph",
+                "precipitation_unit": "inch",
+                "forecast_days": 3,
+                "timezone": "UTC",
+            }
+            resp = requests.get(OPEN_METEO_URL, params=params, timeout=10)
+            resp.raise_for_status()
+            data = resp.json()
+
+            hourly = data.get("hourly", {})
+            times = hourly.get("time", [])
+            winds = hourly.get("wind_speed_10m", [])
+            rains = hourly.get("rain", [])
+            snows = hourly.get("snowfall", [])
+
+            # Find closest hour
+            eta_dt = datetime.fromisoformat(cp["eta_iso"])
+            if eta_dt.tzinfo is None:
+                eta_dt = eta_dt.replace(tzinfo=timezone.utc)
+
+            best_idx = 0
+            best_diff = float("inf")
+            for idx, t_str in enumerate(times):
+                t = datetime.fromisoformat(t_str).replace(tzinfo=timezone.utc)
+                diff = abs((t - eta_dt).total_seconds())
+                if diff < best_diff:
+                    best_diff = diff
+                    best_idx = idx
+
+            cp["wind_mph"] = winds[best_idx] if best_idx < len(winds) else 0.0
+            cp["rain_in"] = rains[best_idx] if best_idx < len(rains) else 0.0
+            cp["snowfall_in"] = snows[best_idx] if best_idx < len(snows) else 0.0
+        except Exception:
+            cp["wind_mph"] = 0.0
+            cp["rain_in"] = 0.0
+            cp["snowfall_in"] = 0.0
+
+        enriched.append(cp)
 
     return enriched
-
-
-def _fetch_heatmap_cell(i, steps, origin_lon, origin_lat, dest_lon, dest_lat):
-    frac = i / steps
-    lat = origin_lat + frac * (dest_lat - origin_lat)
-    lon = origin_lon + frac * (dest_lon - origin_lon)
-    try:
-        params = {
-            "latitude": round(lat, 4),
-            "longitude": round(lon, 4),
-            "hourly": "wind_speed_10m,rain,snowfall",
-            "wind_speed_unit": "mph",
-            "precipitation_unit": "inch",
-            "forecast_days": 3,
-            "timezone": "UTC",
-        }
-        resp = requests.get(OPEN_METEO_URL, params=params, timeout=10)
-        resp.raise_for_status()
-        data = resp.json()
-        hourly = data.get("hourly", {})
-        times = hourly.get("time", [])
-        winds = hourly.get("wind_speed_10m", [])
-        rains = hourly.get("rain", [])
-        snows = hourly.get("snowfall", [])
-        # First 48 hours only
-        return {
-            "lat": round(lat, 4),
-            "lon": round(lon, 4),
-            "hours": [
-                {
-                    "time": times[h] if h < len(times) else None,
-                    "wind_mph": winds[h] if h < len(winds) else 0,
-                    "rain_in": rains[h] if h < len(rains) else 0,
-                    "snowfall_in": snows[h] if h < len(snows) else 0,
-                }
-                for h in range(min(49, len(times)))
-            ],
-        }
-    except Exception:
-        return {"lat": round(lat, 4), "lon": round(lon, 4), "hours": []}
 
 
 def build_heatmap_data(origin_lon, origin_lat, dest_lon, dest_lat):
@@ -275,11 +233,46 @@ def build_heatmap_data(origin_lon, origin_lat, dest_lon, dest_lat):
     for the heatmap time slider. Returns a lightweight list of cells.
     """
     steps = 8  # 8 sample points along corridor
-    with concurrent.futures.ThreadPoolExecutor(max_workers=9) as executor:
-        cells = list(executor.map(
-            lambda i: _fetch_heatmap_cell(i, steps, origin_lon, origin_lat, dest_lon, dest_lat),
-            range(steps + 1)
-        ))
+    cells = []
+    for i in range(steps + 1):
+        frac = i / steps
+        lat = origin_lat + frac * (dest_lat - origin_lat)
+        lon = origin_lon + frac * (dest_lon - origin_lon)
+        try:
+            params = {
+                "latitude": round(lat, 4),
+                "longitude": round(lon, 4),
+                "hourly": "wind_speed_10m,rain,snowfall",
+                "wind_speed_unit": "mph",
+                "precipitation_unit": "inch",
+                "forecast_days": 3,
+                "timezone": "UTC",
+            }
+            resp = requests.get(OPEN_METEO_URL, params=params, timeout=10)
+            resp.raise_for_status()
+            data = resp.json()
+            hourly = data.get("hourly", {})
+            times = hourly.get("time", [])
+            winds = hourly.get("wind_speed_10m", [])
+            rains = hourly.get("rain", [])
+            snows = hourly.get("snowfall", [])
+            # First 48 hours only
+            cells.append({
+                "lat": round(lat, 4),
+                "lon": round(lon, 4),
+                "hours": [
+                    {
+                        "time": times[h] if h < len(times) else None,
+                        "wind_mph": winds[h] if h < len(winds) else 0,
+                        "rain_in": rains[h] if h < len(rains) else 0,
+                        "snowfall_in": snows[h] if h < len(snows) else 0,
+                    }
+                    for h in range(min(49, len(times)))
+                ],
+            })
+        except Exception:
+            cells.append({"lat": round(lat, 4), "lon": round(lon, 4), "hours": []})
+
     return cells
 
 

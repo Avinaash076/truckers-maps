@@ -1,69 +1,72 @@
 import React, { useState, useEffect, useRef } from 'react';
 
 export default function AutocompleteInput({ value, onChange, placeholder, required }) {
-  const [query, setQuery] = useState(value);
+  const [query, setQuery] = useState(value || '');
   const [suggestions, setSuggestions] = useState([]);
   const [isOpen, setIsOpen] = useState(false);
-  const wrapperRef = useRef(null);
-  const debounceRef = useRef(null);
+  const containerRef = useRef(null);
 
   useEffect(() => {
-    setQuery(value);
+    setQuery(value || '');
   }, [value]);
 
   useEffect(() => {
+    if (!query || query.length < 3) {
+      setSuggestions([]);
+      return;
+    }
+
+    // Don't search if the query is exactly a selected suggestion
+    if (suggestions.some(s => s.display_name === query)) return;
+
+    const delayDebounceFn = setTimeout(async () => {
+      try {
+        const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=5&addressdetails=1`);
+        const data = await res.json();
+        setSuggestions(data);
+        setIsOpen(true);
+      } catch (err) {
+        console.error('Error fetching autocomplete:', err);
+      }
+    }, 500);
+
+    return () => clearTimeout(delayDebounceFn);
+  }, [query]);
+
+  // Click outside to close
+  useEffect(() => {
     function handleClickOutside(event) {
-      if (wrapperRef.current && !wrapperRef.current.contains(event.target)) {
+      if (containerRef.current && !containerRef.current.contains(event.target)) {
         setIsOpen(false);
       }
     }
     document.addEventListener("mousedown", handleClickOutside);
-    return () => {
-      document.removeEventListener("mousedown", handleClickOutside);
-    };
-  }, [wrapperRef]);
-
-  const fetchSuggestions = async (searchText) => {
-    if (!searchText || searchText.length < 3) {
-      setSuggestions([]);
-      setIsOpen(false);
-      return;
-    }
-    try {
-      const response = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(searchText)}&limit=5`, {
-        headers: { 'Accept-Language': 'en-US,en;q=0.9' }
-      });
-      const data = await response.json();
-      setSuggestions(data);
-      setIsOpen(true);
-    } catch (err) {
-      console.error('Error fetching suggestions', err);
-    }
-  };
-
-  const handleChange = (e) => {
-    const val = e.target.value;
-    setQuery(val);
-    onChange(val);
-
-    if (debounceRef.current) {
-      clearTimeout(debounceRef.current);
-    }
-    debounceRef.current = setTimeout(() => {
-      fetchSuggestions(val);
-    }, 500);
-  };
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
 
   const handleSelect = (suggestion) => {
-    const displayName = suggestion.display_name;
+    // Simplify the display name (city, state/country)
+    const addr = suggestion.address;
+    const city = addr.city || addr.town || addr.village || addr.county;
+    const state = addr.state || addr.country;
+    let displayName = suggestion.display_name;
+
+    if (city && state) {
+      displayName = `${city}, ${state}`;
+    }
+
     setQuery(displayName);
     onChange(displayName);
     setIsOpen(false);
-    setSuggestions([]);
+  };
+
+  const handleChange = (e) => {
+    setQuery(e.target.value);
+    onChange(e.target.value);
   };
 
   return (
-    <div ref={wrapperRef} className="relative">
+    <div className="relative w-full" ref={containerRef}>
       <input
         type="text"
         value={query}
@@ -72,15 +75,16 @@ export default function AutocompleteInput({ value, onChange, placeholder, requir
         required={required}
         className="w-full bg-slate-950 border border-slate-700 focus:border-teal-400 rounded-lg px-3 py-2 text-sm text-white outline-none transition"
       />
+
       {isOpen && suggestions.length > 0 && (
-        <ul className="absolute z-50 w-full mt-1 bg-slate-800 border border-slate-700 rounded-lg shadow-lg max-h-60 overflow-y-auto text-sm text-white">
-          {suggestions.map((item) => (
+        <ul className="absolute z-50 w-full mt-1 bg-slate-900 border border-slate-700 rounded-lg shadow-xl max-h-60 overflow-y-auto">
+          {suggestions.map((suggestion) => (
             <li
-              key={item.place_id}
-              onClick={() => handleSelect(item)}
-              className="px-3 py-2 hover:bg-slate-700 cursor-pointer border-b border-slate-700 last:border-0"
+              key={suggestion.place_id}
+              onClick={() => handleSelect(suggestion)}
+              className="px-3 py-2 cursor-pointer hover:bg-teal-500/20 text-slate-300 text-sm border-b border-slate-800 last:border-0"
             >
-              {item.display_name}
+              {suggestion.display_name}
             </li>
           ))}
         </ul>
