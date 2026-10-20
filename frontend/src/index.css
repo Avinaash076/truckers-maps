@@ -1,0 +1,38 @@
+@import "tailwindcss";
+
+/* Ensure full viewport height flows through the DOM tree so MapLibre
+   can resolve height:100% on the map container. Without this the map
+   canvas computes to 0px tall and renders a blank black box. */
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+/* MapLibre popup dark override – match the app theme */
+.maplibregl-popup-content {
+  background: #0f172a !important;
+  color: #f1f5f9 !important;
+  border: 1px solid #334155 !important;
+  border-radius: 10px !important;
+  padding: 0 !important;
+  box-shadow: 0 4px 24px rgba(0,0,0,0.6) !important;
+}
+
+.maplibregl-popup-tip {
+  border-top-color: #334155 !important;
+}
+
+.maplibregl-popup-close-button {
+  color: #94a3b8 !important;
+  font-size: 18px !important;
+  padding: 4px 8px !important;
+}
+
+.maplibregl-popup-close-button:hover {
+  color: #f1f5f9 !important;
+  background: transparent !important;
+}
