@@ -6,6 +6,7 @@ import {
   AlertTriangle, CheckCircle, XCircle, Wind, CloudRain,
   CloudSnow, Clock, Route, BarChart3, Loader2
 } from 'lucide-react';
+import AutocompleteInput from './AutocompleteInput';
 
 const RISK_COLORS = {
   'Clear':     '#22c55e',
@@ -169,13 +170,11 @@ export default function App() {
               <label className="text-xs font-semibold text-slate-300 uppercase tracking-wider flex items-center gap-1.5 mb-1">
                 <MapPin className="w-3.5 h-3.5 text-teal-400" /> Origin
               </label>
-              <input
-                type="text"
+              <AutocompleteInput
                 value={formData.origin}
-                onChange={(e) => setFormData({ ...formData, origin: e.target.value })}
+                onChange={(val) => setFormData({ ...formData, origin: val })}
                 placeholder="e.g., Chicago, IL"
-                required
-                className="w-full bg-slate-950 border border-slate-700 focus:border-teal-400 rounded-lg px-3 py-2 text-sm text-white outline-none transition"
+                required={true}
               />
             </div>
 
@@ -184,13 +183,11 @@ export default function App() {
               <label className="text-xs font-semibold text-slate-300 uppercase tracking-wider flex items-center gap-1.5 mb-1">
                 <Navigation className="w-3.5 h-3.5 text-sky-400" /> Destination
               </label>
-              <input
-                type="text"
+              <AutocompleteInput
                 value={formData.destination}
-                onChange={(e) => setFormData({ ...formData, destination: e.target.value })}
+                onChange={(val) => setFormData({ ...formData, destination: val })}
                 placeholder="e.g., Denver, CO"
-                required
-                className="w-full bg-slate-950 border border-slate-700 focus:border-sky-400 rounded-lg px-3 py-2 text-sm text-white outline-none transition"
+                required={true}
               />
             </div>
 
