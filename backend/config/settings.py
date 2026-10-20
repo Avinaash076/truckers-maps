@@ -23,14 +23,10 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = 'django-insecure-85r)v*_ur+gjir_m81eb6&bglpmzl(*p(8v%u1^13%^#v!sw9^'
 
 # SECURITY WARNING: don't run with debug turned on in production!
-import os
-DEBUG = os.environ.get('DEBUG', 'True') == 'True'
+DEBUG = True
 
 ALLOWED_HOSTS = ['localhost', '127.0.0.1']
-if 'RENDER_EXTERNAL_HOSTNAME' in os.environ:
-    ALLOWED_HOSTS.append(os.environ['RENDER_EXTERNAL_HOSTNAME'])
-elif not DEBUG:
-    ALLOWED_HOSTS = ['*']
+
 
 # Application definition
 
@@ -68,7 +64,7 @@ ROOT_URLCONF = 'config.urls'
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [BASE_DIR.parent / 'frontend' / 'dist'],
+        'DIRS': [],
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
@@ -130,12 +126,6 @@ USE_TZ = True
 
 STATIC_URL = 'static/'
 
-STATICFILES_DIRS = [
-    BASE_DIR.parent / 'frontend' / 'dist' / 'assets',
-]
-STATIC_ROOT = BASE_DIR / 'staticfiles'
-WHITENOISE_ROOT = BASE_DIR.parent / 'frontend' / 'dist'
-
 
 # Email
 # https://docs.djangoproject.com/en/6.1/topics/email/#topic-email-configuration
@@ -145,3 +135,14 @@ MAILERS = {
         'BACKEND': 'django.core.mail.backends.console.EmailBackend',
     },
 }
+
+
+# Static files configuration for Whitenoise
+STATIC_ROOT = BASE_DIR / 'staticfiles'
+STATICFILES_DIRS = [
+    BASE_DIR.parent / 'frontend' / 'dist',
+]
+
+import os
+TEMPLATES[0]['DIRS'] = [os.path.join(BASE_DIR.parent, 'frontend', 'dist')]
+WHITENOISE_ROOT = BASE_DIR.parent / 'frontend' / 'dist'
