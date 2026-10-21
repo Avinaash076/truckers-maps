@@ -9,9 +9,9 @@ import {
 import AutocompleteInput from './AutocompleteInput';
 
 
-if (typeof window !== 'undefined' && window.maplibregl) {
-  window.maplibregl.workerClass = '/assets/maplibre-gl-worker.js';
-}
+// if (typeof window !== 'undefined' && window.maplibregl) {
+//   window.maplibregl.workerClass = '/assets/maplibre-gl-worker.js';
+// }
 
 const RISK_COLORS = {
   'Clear':     '#22c55e',
