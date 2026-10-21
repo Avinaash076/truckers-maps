@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef } from 'react';
 import Map, { Marker, Source, Layer, NavigationControl, Popup } from 'react-map-gl/maplibre';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import {
@@ -11,15 +11,8 @@ import 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 
 if (typeof window !== 'undefined' && window.maplibregl) {
-  window.maplibregl.workerClass = '/assets/maplibre-gl-worker.mjs';
+  window.maplibregl.workerClass = '/assets/maplibre-gl-worker.js';
 }
-
-
-// In production (Render) the backend is a separate service at a known URL.
-// Set VITE_API_BASE in your frontend service's environment variables on Render,
-// e.g. VITE_API_BASE=https://truckers-maps-api.onrender.com
-// Locally the Vite dev server proxy forwards /api/* to http://localhost:8000.
-const API_BASE = import.meta.env.VITE_API_BASE || '';
 
 
 const RISK_COLORS = {
@@ -49,109 +42,6 @@ function RiskBadge({ level }) {
       className="px-2 py-0.5 rounded-full text-[10px] font-bold tracking-wide">
       {level}
     </span>
-  );
-}
-
-// ── PlaceAutocomplete ────────────────────────────────────────────────
-// onSelect(place) → place is { label, lat, lon } when picked from dropdown
-// or just updates label string when user types freely
-function PlaceAutocomplete({ value, onSelect, placeholder, focusColor = 'teal', id }) {
-  const [suggestions, setSuggestions] = useState([]);
-  const [open, setOpen] = useState(false);
-  const [highlighted, setHighlighted] = useState(-1);
-  const debounceRef = useRef(null);
-  const containerRef = useRef(null);
-
-  const fetchSuggestions = useCallback(async (q) => {
-    if (q.length < 2) { setSuggestions([]); setOpen(false); return; }
-    try {
-      const res = await fetch(`${API_BASE}/api/routes/suggest/?q=${encodeURIComponent(q)}`);
-      if (!res.ok) return;
-      const data = await res.json();
-      setSuggestions(Array.isArray(data) ? data.slice(0, 6) : []);
-      setOpen(true);
-      setHighlighted(-1);
-    } catch (_) { /* ignore network errors silently */ }
-  }, []);
-
-  const handleChange = (e) => {
-    const q = e.target.value;
-    // Free-type: pass label only (no coords), clears any pinned coords
-    onSelect({ label: q, lat: null, lon: null });
-    clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => fetchSuggestions(q), 300);
-  };
-
-  const handlePickSuggestion = (s) => {
-    // Pass full coords so backend can skip re-geocoding
-    onSelect({ label: s.label, lat: parseFloat(s.lat), lon: parseFloat(s.lon) });
-    setSuggestions([]);
-    setOpen(false);
-  };
-
-  const handleKeyDown = (e) => {
-    if (!open || suggestions.length === 0) return;
-    if (e.key === 'ArrowDown') {
-      e.preventDefault();
-      setHighlighted((h) => Math.min(h + 1, suggestions.length - 1));
-    } else if (e.key === 'ArrowUp') {
-      e.preventDefault();
-      setHighlighted((h) => Math.max(h - 1, 0));
-    } else if (e.key === 'Enter' && highlighted >= 0) {
-      e.preventDefault();
-      handlePickSuggestion(suggestions[highlighted]);
-    } else if (e.key === 'Escape') {
-      setOpen(false);
-    }
-  };
-
-  useEffect(() => {
-    const handler = (e) => {
-      if (containerRef.current && !containerRef.current.contains(e.target)) {
-        setOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, []);
-
-  const borderFocus = focusColor === 'sky' ? 'focus:border-sky-400' : 'focus:border-teal-400';
-
-  return (
-    <div ref={containerRef} className="relative">
-      <input
-        id={id}
-        type="text"
-        value={value}
-        onChange={handleChange}
-        onKeyDown={handleKeyDown}
-        onFocus={() => suggestions.length > 0 && setOpen(true)}
-        placeholder={placeholder}
-        autoComplete="off"
-        required
-        className={`w-full bg-slate-950 border border-slate-700 ${borderFocus} rounded-lg px-3 py-2 text-sm text-white outline-none transition`}
-      />
-      {open && suggestions.length > 0 && (
-        <ul
-          className="absolute z-50 left-0 right-0 mt-1 rounded-xl border border-slate-700 bg-slate-900 shadow-2xl shadow-black/60 overflow-hidden"
-          style={{ maxHeight: 260, overflowY: 'auto' }}
-        >
-          {suggestions.map((s, i) => (
-            <li
-              key={i}
-              onMouseDown={() => handlePickSuggestion(s)}
-              onMouseEnter={() => setHighlighted(i)}
-              className={`px-3 py-2.5 text-xs cursor-pointer flex items-start gap-2 transition-colors ${
-                i === highlighted ? 'bg-teal-500/20 text-white' : 'text-slate-300 hover:bg-slate-800'
-              }`}
-            >
-              <span className="mt-0.5 text-teal-400 shrink-0">📍</span>
-              <span className="leading-snug">{s.label}</span>
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
   );
 }
 
@@ -189,9 +79,7 @@ function RouteCard({ route, idx, selected, onSelect }) {
 export default function App() {
   const [formData, setFormData] = useState({
     origin: 'Chicago, IL',
-    originLat: null, originLon: null,
     destination: 'Denver, CO',
-    destLat: null, destLon: null,
     departureTime: new Date().toISOString().slice(0, 16),
     loadWeight: 42000,
     intervalMiles: 50,
@@ -219,7 +107,13 @@ export default function App() {
       const resp = await fetch('/api/routes/analyze/', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({
+          origin: formData.origin,
+          destination: formData.destination,
+          departure_time: formData.departureTime,
+          load_weight: formData.loadWeight,
+          interval_miles: formData.intervalMiles,
+        }),
       });
       if (!resp.ok) {
         const err = await resp.json();
@@ -228,16 +122,16 @@ export default function App() {
       const data = await resp.json();
       setResult(data);
       setSelectedRoute(0);
-      // Fly to fit both endpoints — zoom dynamically based on distance
+      // Fly to fit both endpoints
       if (mapRef.current) {
-        const midLon = (data.origin.lon + data.destination.lon) / 2;
-        const midLat = (data.origin.lat + data.destination.lat) / 2;
-        const spanLon = Math.abs(data.origin.lon - data.destination.lon);
-        const spanLat = Math.abs(data.origin.lat - data.destination.lat);
-        const span = Math.max(spanLon, spanLat);
-        // Rough zoom: bigger span → lower zoom
-        const zoom = span < 0.5 ? 11 : span < 2 ? 9 : span < 5 ? 7 : span < 15 ? 5.5 : 4;
-        mapRef.current.flyTo({ center: [midLon, midLat], zoom, duration: 1500 });
+        mapRef.current.flyTo({
+          center: [
+            (data.origin.lon + data.destination.lon) / 2,
+            (data.origin.lat + data.destination.lat) / 2,
+          ],
+          zoom: 5,
+          duration: 1500,
+        });
       }
     } catch (err) {
       setError(err.message);
@@ -280,7 +174,7 @@ export default function App() {
           <form onSubmit={handleSubmit} className="space-y-4">
             {/* Origin */}
             <div>
-              <label htmlFor="origin-input" className="text-xs font-semibold text-slate-300 uppercase tracking-wider flex items-center gap-1.5 mb-1">
+              <label className="text-xs font-semibold text-slate-300 uppercase tracking-wider flex items-center gap-1.5 mb-1">
                 <MapPin className="w-3.5 h-3.5 text-teal-400" /> Origin
               </label>
               <AutocompleteInput
@@ -289,16 +183,11 @@ export default function App() {
                 placeholder="e.g., Chicago, IL"
                 required={true}
               />
-              {formData.originLat && (
-                <p className="text-[10px] text-teal-500/70 mt-0.5 pl-1">
-                  📌 Pinned: {Number(formData.originLat).toFixed(4)}, {Number(formData.originLon).toFixed(4)}
-                </p>
-              )}
             </div>
 
             {/* Destination */}
             <div>
-              <label htmlFor="destination-input" className="text-xs font-semibold text-slate-300 uppercase tracking-wider flex items-center gap-1.5 mb-1">
+              <label className="text-xs font-semibold text-slate-300 uppercase tracking-wider flex items-center gap-1.5 mb-1">
                 <Navigation className="w-3.5 h-3.5 text-sky-400" /> Destination
               </label>
               <AutocompleteInput
@@ -307,11 +196,6 @@ export default function App() {
                 placeholder="e.g., Denver, CO"
                 required={true}
               />
-              {formData.destLat && (
-                <p className="text-[10px] text-sky-500/70 mt-0.5 pl-1">
-                  📌 Pinned: {Number(formData.destLat).toFixed(4)}, {Number(formData.destLon).toFixed(4)}
-                </p>
-              )}
             </div>
 
             {/* Departure time */}

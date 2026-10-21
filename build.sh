@@ -7,7 +7,8 @@ cd frontend
 npm install
 npm run build
 # Explicitly copy the maplibre worker so WhiteNoise can serve it with correct mime type
-cp node_modules/maplibre-gl/dist/maplibre-gl-worker.mjs dist/assets/maplibre-gl-worker.mjs
+# We copy it as .js to ensure python mimetypes serves it as application/javascript
+cp node_modules/maplibre-gl/dist/maplibre-gl-worker.mjs dist/assets/maplibre-gl-worker.js
 cd ..
 
 echo "Installing backend dependencies..."
