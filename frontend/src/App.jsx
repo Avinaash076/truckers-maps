@@ -6,6 +6,14 @@ import {
   AlertTriangle, CheckCircle, XCircle, Wind, CloudRain,
   CloudSnow, Clock, Route, BarChart3, Loader2
 } from 'lucide-react';
+import AutocompleteInput from './AutocompleteInput';
+import 'maplibre-gl';
+import 'maplibre-gl/dist/maplibre-gl.css';
+
+if (typeof window !== 'undefined' && window.maplibregl) {
+  window.maplibregl.workerClass = '/assets/maplibre-gl-worker.mjs';
+}
+
 
 // In production (Render) the backend is a separate service at a known URL.
 // Set VITE_API_BASE in your frontend service's environment variables on Render,
@@ -208,25 +216,7 @@ export default function App() {
     setResult(null);
     setPopupInfo(null);
     try {
-      // Build payload — include pinned coords when available so backend
-      // can skip re-geocoding and use the exact Nominatim result
-      const payload = {
-        origin: formData.origin,
-        destination: formData.destination,
-        departure_time: formData.departureTime,
-        load_weight: formData.loadWeight,
-        interval_miles: formData.intervalMiles,
-      };
-      if (formData.originLat != null && formData.originLon != null) {
-        payload.origin_lat = formData.originLat;
-        payload.origin_lon = formData.originLon;
-      }
-      if (formData.destLat != null && formData.destLon != null) {
-        payload.dest_lat = formData.destLat;
-        payload.dest_lon = formData.destLon;
-      }
-
-      const resp = await fetch(`${API_BASE}/api/routes/analyze/`, {
+      const resp = await fetch('/api/routes/analyze/', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
@@ -293,14 +283,11 @@ export default function App() {
               <label htmlFor="origin-input" className="text-xs font-semibold text-slate-300 uppercase tracking-wider flex items-center gap-1.5 mb-1">
                 <MapPin className="w-3.5 h-3.5 text-teal-400" /> Origin
               </label>
-              <PlaceAutocomplete
-                id="origin-input"
+              <AutocompleteInput
                 value={formData.origin}
-                onSelect={({ label, lat, lon }) =>
-                  setFormData({ ...formData, origin: label, originLat: lat, originLon: lon })
-                }
+                onChange={(val) => setFormData({ ...formData, origin: val })}
                 placeholder="e.g., Chicago, IL"
-                focusColor="teal"
+                required={true}
               />
               {formData.originLat && (
                 <p className="text-[10px] text-teal-500/70 mt-0.5 pl-1">
@@ -314,14 +301,11 @@ export default function App() {
               <label htmlFor="destination-input" className="text-xs font-semibold text-slate-300 uppercase tracking-wider flex items-center gap-1.5 mb-1">
                 <Navigation className="w-3.5 h-3.5 text-sky-400" /> Destination
               </label>
-              <PlaceAutocomplete
-                id="destination-input"
+              <AutocompleteInput
                 value={formData.destination}
-                onSelect={({ label, lat, lon }) =>
-                  setFormData({ ...formData, destination: label, destLat: lat, destLon: lon })
-                }
+                onChange={(val) => setFormData({ ...formData, destination: val })}
                 placeholder="e.g., Denver, CO"
-                focusColor="sky"
+                required={true}
               />
               {formData.destLat && (
                 <p className="text-[10px] text-sky-500/70 mt-0.5 pl-1">
