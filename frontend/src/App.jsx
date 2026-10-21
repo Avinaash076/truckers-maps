@@ -8,10 +8,10 @@ import {
 } from 'lucide-react';
 import AutocompleteInput from './AutocompleteInput';
 import 'maplibre-gl';
-import maplibreglWorkerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?url';
+import 'maplibre-gl/dist/maplibre-gl.css';
 
 if (typeof window !== 'undefined' && window.maplibregl) {
-  window.maplibregl.workerClass = maplibreglWorkerUrl;
+  window.maplibregl.workerClass = '/assets/maplibre-gl-worker.mjs';
 }
 
 
