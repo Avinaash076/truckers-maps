@@ -1,18 +1,14 @@
-import React, { useState, useRef } from 'react';
-import Map, { Marker, Source, Layer, NavigationControl, Popup } from 'react-map-gl/maplibre';
-import 'maplibre-gl/dist/maplibre-gl.css';
-import {
-  Truck, MapPin, Calendar, Weight, Navigation,
-  AlertTriangle, CheckCircle, XCircle, Wind, CloudRain,
-  CloudSnow, Clock, Route, BarChart3, Loader2
-} from 'lucide-react';
-import AutocompleteInput from './AutocompleteInput';
+import { StrictMode } from 'react'
+import { createRoot } from 'react-dom/client'
+import maplibregl from 'maplibre-gl'
+import MaplibreWorker from 'maplibre-gl/dist/maplibre-gl-csp-worker?worker&inline'
+import './index.css'
+import App from './App.jsx'
 
-const RISK_COLORS = {
-  'Clear':     '#22c55e',
-  'Low':       '#84cc16',
-  'Moderate':  '#eab308',
-  'High':      '#f97316',
-  'Severe':    '#ef4444',
-  'No Travel': '#7c3aed',
-};
+maplibregl.workerClass = MaplibreWorker
+
+createRoot(document.getElementById('root')).render(
+  <StrictMode>
+    <App />
+  </StrictMode>,
+)
