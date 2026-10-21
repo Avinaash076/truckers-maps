@@ -1,6 +1,6 @@
 import math
 import requests
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
@@ -169,111 +169,131 @@ def interpolate_checkpoints(coords, interval_miles, departure_dt, duration_secon
 #  STEP 4 – WEATHER FETCH
 # ─────────────────────────────────────────────
 
+def _fetch_weather_for_checkpoint(cp):
+    """Fetch Open-Meteo weather for a single checkpoint. Called in a thread."""
+    try:
+        params = {
+            "latitude": cp["lat"],
+            "longitude": cp["lon"],
+            "hourly": "wind_speed_10m,rain,snowfall",
+            "wind_speed_unit": "mph",
+            "precipitation_unit": "inch",
+            "forecast_days": 3,
+            "timezone": "UTC",
+        }
+        resp = requests.get(OPEN_METEO_URL, params=params, timeout=10)
+        resp.raise_for_status()
+        data = resp.json()
+
+        hourly = data.get("hourly", {})
+        times = hourly.get("time", [])
+        winds = hourly.get("wind_speed_10m", [])
+        rains = hourly.get("rain", [])
+        snows = hourly.get("snowfall", [])
+
+        # Find closest hour to ETA
+        eta_dt = datetime.fromisoformat(cp["eta_iso"])
+        if eta_dt.tzinfo is None:
+            eta_dt = eta_dt.replace(tzinfo=timezone.utc)
+
+        best_idx = 0
+        best_diff = float("inf")
+        for idx, t_str in enumerate(times):
+            t = datetime.fromisoformat(t_str).replace(tzinfo=timezone.utc)
+            diff = abs((t - eta_dt).total_seconds())
+            if diff < best_diff:
+                best_diff = diff
+                best_idx = idx
+
+        cp["wind_mph"] = winds[best_idx] if best_idx < len(winds) else 0.0
+        cp["rain_in"] = rains[best_idx] if best_idx < len(rains) else 0.0
+        cp["snowfall_in"] = snows[best_idx] if best_idx < len(snows) else 0.0
+    except Exception:
+        cp["wind_mph"] = 0.0
+        cp["rain_in"] = 0.0
+        cp["snowfall_in"] = 0.0
+    return cp
+
+
 def fetch_weather_batch(checkpoints):
     """
-    Fetch Open-Meteo hourly weather for each unique (lat, lon) checkpoint
-    and match to the checkpoint ETA hour.
-    Returns checkpoints with weather fields added.
+    Fetch Open-Meteo hourly weather for all checkpoints in parallel
+    using ThreadPoolExecutor, then match to the checkpoint ETA hour.
     """
     if not checkpoints:
         return checkpoints
 
-    enriched = []
-    for cp in checkpoints:
-        try:
-            params = {
-                "latitude": cp["lat"],
-                "longitude": cp["lon"],
-                "hourly": "wind_speed_10m,rain,snowfall",
-                "wind_speed_unit": "mph",
-                "precipitation_unit": "inch",
-                "forecast_days": 3,
-                "timezone": "UTC",
-            }
-            resp = requests.get(OPEN_METEO_URL, params=params, timeout=10)
-            resp.raise_for_status()
-            data = resp.json()
+    # Run all HTTP calls concurrently — each checkpoint is independent
+    with ThreadPoolExecutor(max_workers=min(len(checkpoints), 20)) as pool:
+        futures = {pool.submit(_fetch_weather_for_checkpoint, cp): i
+                   for i, cp in enumerate(checkpoints)}
+        results = [None] * len(checkpoints)
+        for future in as_completed(futures):
+            original_idx = futures[future]
+            results[original_idx] = future.result()
 
-            hourly = data.get("hourly", {})
-            times = hourly.get("time", [])
-            winds = hourly.get("wind_speed_10m", [])
-            rains = hourly.get("rain", [])
-            snows = hourly.get("snowfall", [])
+    return results
 
-            # Find closest hour
-            eta_dt = datetime.fromisoformat(cp["eta_iso"])
-            if eta_dt.tzinfo is None:
-                eta_dt = eta_dt.replace(tzinfo=timezone.utc)
 
-            best_idx = 0
-            best_diff = float("inf")
-            for idx, t_str in enumerate(times):
-                t = datetime.fromisoformat(t_str).replace(tzinfo=timezone.utc)
-                diff = abs((t - eta_dt).total_seconds())
-                if diff < best_diff:
-                    best_diff = diff
-                    best_idx = idx
-
-            cp["wind_mph"] = winds[best_idx] if best_idx < len(winds) else 0.0
-            cp["rain_in"] = rains[best_idx] if best_idx < len(rains) else 0.0
-            cp["snowfall_in"] = snows[best_idx] if best_idx < len(snows) else 0.0
-        except Exception:
-            cp["wind_mph"] = 0.0
-            cp["rain_in"] = 0.0
-            cp["snowfall_in"] = 0.0
-
-        enriched.append(cp)
-
-    return enriched
+def _fetch_heatmap_cell(args):
+    """Fetch Open-Meteo data for one heatmap corridor point. Called in a thread."""
+    lat, lon = args
+    try:
+        params = {
+            "latitude": round(lat, 4),
+            "longitude": round(lon, 4),
+            "hourly": "wind_speed_10m,rain,snowfall",
+            "wind_speed_unit": "mph",
+            "precipitation_unit": "inch",
+            "forecast_days": 3,
+            "timezone": "UTC",
+        }
+        resp = requests.get(OPEN_METEO_URL, params=params, timeout=10)
+        resp.raise_for_status()
+        data = resp.json()
+        hourly = data.get("hourly", {})
+        times = hourly.get("time", [])
+        winds = hourly.get("wind_speed_10m", [])
+        rains = hourly.get("rain", [])
+        snows = hourly.get("snowfall", [])
+        return {
+            "lat": round(lat, 4),
+            "lon": round(lon, 4),
+            "hours": [
+                {
+                    "time": times[h] if h < len(times) else None,
+                    "wind_mph": winds[h] if h < len(winds) else 0,
+                    "rain_in": rains[h] if h < len(rains) else 0,
+                    "snowfall_in": snows[h] if h < len(snows) else 0,
+                }
+                for h in range(min(49, len(times)))
+            ],
+        }
+    except Exception:
+        return {"lat": round(lat, 4), "lon": round(lon, 4), "hours": []}
 
 
 def build_heatmap_data(origin_lon, origin_lat, dest_lon, dest_lat):
     """
-    Sample a grid of points along the corridor and fetch 0–48h weather
-    for the heatmap time slider. Returns a lightweight list of cells.
+    Sample 9 corridor points and fetch 0–48h weather for all of them
+    in parallel using ThreadPoolExecutor.
     """
-    steps = 8  # 8 sample points along corridor
-    cells = []
-    for i in range(steps + 1):
-        frac = i / steps
-        lat = origin_lat + frac * (dest_lat - origin_lat)
-        lon = origin_lon + frac * (dest_lon - origin_lon)
-        try:
-            params = {
-                "latitude": round(lat, 4),
-                "longitude": round(lon, 4),
-                "hourly": "wind_speed_10m,rain,snowfall",
-                "wind_speed_unit": "mph",
-                "precipitation_unit": "inch",
-                "forecast_days": 3,
-                "timezone": "UTC",
-            }
-            resp = requests.get(OPEN_METEO_URL, params=params, timeout=10)
-            resp.raise_for_status()
-            data = resp.json()
-            hourly = data.get("hourly", {})
-            times = hourly.get("time", [])
-            winds = hourly.get("wind_speed_10m", [])
-            rains = hourly.get("rain", [])
-            snows = hourly.get("snowfall", [])
-            # First 48 hours only
-            cells.append({
-                "lat": round(lat, 4),
-                "lon": round(lon, 4),
-                "hours": [
-                    {
-                        "time": times[h] if h < len(times) else None,
-                        "wind_mph": winds[h] if h < len(winds) else 0,
-                        "rain_in": rains[h] if h < len(rains) else 0,
-                        "snowfall_in": snows[h] if h < len(snows) else 0,
-                    }
-                    for h in range(min(49, len(times)))
-                ],
-            })
-        except Exception:
-            cells.append({"lat": round(lat, 4), "lon": round(lon, 4), "hours": []})
+    steps = 8
+    coords = [
+        (
+            origin_lat + (i / steps) * (dest_lat - origin_lat),
+            origin_lon + (i / steps) * (dest_lon - origin_lon),
+        )
+        for i in range(steps + 1)
+    ]
 
-    return cells
+    with ThreadPoolExecutor(max_workers=len(coords)) as pool:
+        futures = {pool.submit(_fetch_heatmap_cell, c): idx for idx, c in enumerate(coords)}
+        results = [None] * len(coords)
+        for future in as_completed(futures):
+            results[futures[future]] = future.result()
+
+    return results
 
 
 # ─────────────────────────────────────────────
@@ -328,30 +348,73 @@ def rank_routes(routes_data):
 #  MAIN ENDPOINT
 # ─────────────────────────────────────────────
 
+@api_view(["GET"])
+def suggest_places(request):
+    """
+    Nominatim autocomplete for the frontend typeahead.
+    GET /api/routes/suggest/?q=Chicago
+    """
+    query = request.GET.get("q", "").strip()
+    if len(query) < 2:
+        return Response([])
+    try:
+        resp = requests.get(
+            NOMINATIM_URL,
+            params={"q": query, "format": "json", "limit": 6, "addressdetails": 0},
+            headers={"User-Agent": USER_AGENT},
+            timeout=5,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        suggestions = [
+            {"label": item.get("display_name", ""), "lat": item["lat"], "lon": item["lon"]}
+            for item in data
+        ]
+        return Response(suggestions)
+    except Exception as e:
+        return Response({"error": str(e)}, status=status.HTTP_502_BAD_GATEWAY)
+
+
 @api_view(["POST"])
 def analyze_routes(request):
     data = request.data
     origin = data.get("origin", "").strip()
     destination = data.get("destination", "").strip()
-    departure_time_str = data.get("departure_time") or data.get("departureTime", "")
+    departure_time_str = (data.get("departure_time") or data.get("departureTime", "")).strip()
     load_weight = float(data.get("load_weight") or data.get("loadWeight", 42000))
     interval_miles = int(data.get("interval_miles") or data.get("intervalMiles", 50))
 
     if not origin or not destination:
         return Response({"error": "origin and destination are required"}, status=status.HTTP_400_BAD_REQUEST)
 
-    # Parse departure time
-    try:
-        departure_dt = datetime.fromisoformat(departure_time_str)
-        if departure_dt.tzinfo is None:
-            departure_dt = departure_dt.replace(tzinfo=timezone.utc)
-    except (ValueError, TypeError):
+    # Parse departure time — always fall back to current UTC time if missing/invalid
+    departure_dt = None
+    if departure_time_str:
+        try:
+            departure_dt = datetime.fromisoformat(departure_time_str)
+            if departure_dt.tzinfo is None:
+                departure_dt = departure_dt.replace(tzinfo=timezone.utc)
+        except ValueError:
+            departure_dt = None
+    if departure_dt is None:
         departure_dt = datetime.now(tz=timezone.utc)
 
-    # ── Step 1: Geocode ──
+    # ── Step 1: Geocode (skip if pinned coords were supplied by frontend) ──
     try:
-        origin_lon, origin_lat = geocode(origin)
-        dest_lon, dest_lat = geocode(destination)
+        origin_lat_pin = data.get("origin_lat")
+        origin_lon_pin = data.get("origin_lon")
+        dest_lat_pin   = data.get("dest_lat")
+        dest_lon_pin   = data.get("dest_lon")
+
+        if origin_lat_pin is not None and origin_lon_pin is not None:
+            origin_lon, origin_lat = float(origin_lon_pin), float(origin_lat_pin)
+        else:
+            origin_lon, origin_lat = geocode(origin)
+
+        if dest_lat_pin is not None and dest_lon_pin is not None:
+            dest_lon, dest_lat = float(dest_lon_pin), float(dest_lat_pin)
+        else:
+            dest_lon, dest_lat = geocode(destination)
     except Exception as e:
         return Response({"error": f"Geocoding failed: {str(e)}"}, status=status.HTTP_400_BAD_REQUEST)
 
