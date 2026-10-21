@@ -7,13 +7,11 @@ import {
   CloudSnow, Clock, Route, BarChart3, Loader2
 } from 'lucide-react';
 import AutocompleteInput from './AutocompleteInput';
-import 'maplibre-gl';
-import 'maplibre-gl/dist/maplibre-gl.css';
+
 
 if (typeof window !== 'undefined' && window.maplibregl) {
   window.maplibregl.workerClass = '/assets/maplibre-gl-worker.js';
 }
-
 
 const RISK_COLORS = {
   'Clear':     '#22c55e',

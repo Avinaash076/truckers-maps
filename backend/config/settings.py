@@ -146,3 +146,8 @@ STATICFILES_DIRS = [
 import os
 TEMPLATES[0]['DIRS'] = [os.path.join(BASE_DIR.parent, 'frontend', 'dist')]
 WHITENOISE_ROOT = BASE_DIR.parent / 'frontend' / 'dist'
+
+# Ensure .mjs files are served as javascript by WhiteNoise to prevent "non-JavaScript MIME type" errors on Render
+import mimetypes
+mimetypes.add_type("application/javascript", ".mjs")
+mimetypes.add_type("application/javascript", ".js")
